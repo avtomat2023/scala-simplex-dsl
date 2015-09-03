@@ -14,12 +14,14 @@ case object Ge extends Equality
 case object Eq extends Equality
 
 sealed trait LinearExpr {
-  def +(other: LinearExpr): LinearExpr = new +(this, other)
+  def +(other: LinearExpr): LinearExpr = new Plus(this, other)
   def *(other: Double): LinearExpr
   def unary_- : LinearExpr
+
   private[simplex] def makeCoeffs: Map[Int,Double]
   private[simplex] def makeConstraint(const: Double, e: Equality): Constraint =
     Constraint(makeCoeffs, const, e)
+
   def <=(const: Double) {
     require(Maximizer.constraintsRef.nonEmpty)
     Maximizer.constraintsRef.head += makeConstraint(const, Le)
@@ -40,9 +42,9 @@ case class Term(coeff: Double, variable: Var) extends LinearExpr {
   def makeCoeffs: Map[Int,Double] = Map(variable.n -> coeff)
 }
 
-case class +(lhs: LinearExpr, rhs: LinearExpr) extends LinearExpr {
-  def unary_- : LinearExpr = new +(-lhs, -rhs)
-  def *(other: Double) = new +(lhs * other, rhs * other)
+case class Plus(lhs: LinearExpr, rhs: LinearExpr) extends LinearExpr {
+  def unary_- : LinearExpr = new Plus(-lhs, -rhs)
+  def *(other: Double) = new Plus(lhs * other, rhs * other)
   def makeCoeffs: Map[Int,Double] = (lhs.makeCoeffs mix rhs.makeCoeffs)(_ + _)
 }
 
@@ -56,10 +58,10 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   val Epsilon = 1.0e-8
   val Fine = 1.0e-6
 
-  val nObjectiveVars = constraints.flatMap(_.coeffs.keySet).max + 1
+  val nExplicitVars = constraints.flatMap(_.coeffs.keySet).max + 1
   val nSlackVars = constraints.length
   val nArtificialVars = constraints.filter(_.equality != Le).length
-  val nAllVars = nObjectiveVars + nSlackVars + nArtificialVars
+  val nAllVars = nExplicitVars + nSlackVars + nArtificialVars
   val contents =
     Array.fill(constraints.length + 1)(
       Array.fill(nAllVars + 1)(0.0)
@@ -71,8 +73,8 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 
   // set rows since the second one
-  private[this] val s0 = nObjectiveVars
-  private[this] val a0 = nObjectiveVars + nSlackVars
+  private[this] val s0 = nExplicitVars
+  private[this] val a0 = nExplicitVars + nSlackVars
   private[this] var iArtificial = 0
   constraints.zipWithIndex.foreach{ case (constraint, i) =>
     val row = i + 1
@@ -153,7 +155,8 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 
   def result: Map[Int,Double] = {
-    val assocs = (0 until nAllVars).flatMap(n => solutionOf(n).map(v => n->v))
+    val meanful = nExplicitVars + nSlackVars
+    val assocs = (0 until meanful).flatMap(n => solutionOf(n).map(v => n->v))
     Map(assocs: _*)
   }
 
@@ -223,9 +226,14 @@ abstract class Optimizer {
     println("value of variables:")
     val result = tableau.result
     val objectiveVars = expr.makeCoeffs.keySet
-    def s(n: Int) = if (objectiveVars(n)) "" else "(slack/artificial)"
+
+    def desc(n: Int) =
+      if (objectiveVars(n)) ""
+      else if (n < tableau.nExplicitVars) "(only in constraints)"
+      else "(slack)"
+
     result.toSeq.sortBy(_._1).foreach { case (n, value) =>
-      println("x" + n + s(n) + " = " + value)
+      println("x" + n + desc(n) + " = " + value)
     }
   }
 
