@@ -59,7 +59,7 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   val Fine = 1.0e-6
 
   val nExplicitVars = constraints.flatMap(_.coeffs.keySet).max + 1
-  val nSlackVars = constraints.length
+  val nSlackVars = constraints.filter(_.equality != Eq).length
   val nArtificialVars = constraints.filter(_.equality != Le).length
   val nAllVars = nExplicitVars + nSlackVars + nArtificialVars
   val contents =
@@ -68,32 +68,28 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
     )
 
   // set the first row
-  (-expr).makeCoeffs.foreach { case (n, coeff) =>
-    contents(0)(n) = coeff
+  expr.makeCoeffs.foreach { case (n, coeff) =>
+    contents(0)(n) = -coeff
   }
 
   // set rows since the second one
-  private[this] val s0 = nExplicitVars
-  private[this] val a0 = nExplicitVars + nSlackVars
-  private[this] var iArtificial = 0
-  constraints.zipWithIndex.foreach{ case (constraint, i) =>
-    val row = i + 1
+  private[this] var slackCol = nExplicitVars
+  private[this] var artificialCol = nExplicitVars + nSlackVars
+  constraints.zipWithIndexFrom(1).foreach { case (constraint, row) =>
     constraint.coeffs.foreach{ case (n, coeff) =>
       contents(row)(n) = coeff
     }
-    constraint.equality match {
-      case Le =>
-        contents(row)(s0 + i) = 1.0
-      case Ge =>
-        contents(row)(s0 + i) = -1.0
-        contents(row)(a0 + iArtificial) = 1.0
-        contents(0)(a0 + iArtificial) = Fine
-        iArtificial += 1
-      case Eq =>
-        contents(row)(a0 + iArtificial) = 1.0
-        contents(0)(a0 + iArtificial) = Fine
-        iArtificial += 1
+
+    if (constraint.equality != Eq) {
+      contents(row)(slackCol) = 1.0
+      slackCol += 1
     }
+    if (constraint.equality != Le) {
+      contents(row)(artificialCol) = 1.0
+      contents(0)(artificialCol) = Fine
+      artificialCol += 1
+    }
+
     contents(row)(nAllVars) = constraint.const
   }
 
@@ -106,7 +102,7 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
     contents.zipWithIndex
       .drop(1)
       .filter{ case (row, _) => row(col) > Epsilon }
-      .minBy { case (row, _) => row(nAllVars) / row(col)}
+      .minBy { case (row, _) => row(nAllVars) / row(col) }
       ._2
 
   def sweep(iRow: Int, iCol: Int) {
@@ -175,20 +171,7 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 }
 
-class Maximizer(override val expr: LinearExpr) extends Optimizer {
-  override protected def printObjectiveValue(v: Double) {
-    println("maximum value of objective function: " + v)
-  }
-}
-
-class Minimizer(e: LinearExpr) extends Optimizer {
-  override val expr = -e
-  override protected def printObjectiveValue(v: Double) {
-    println("minimum value of objective function: " + (-v))
-  }
-}
-
-abstract class Optimizer {
+abstract class Solver {
   val expr: LinearExpr
 
   /** Solves the problem and prints the solution. */
@@ -209,18 +192,6 @@ abstract class Optimizer {
     constraints
   } ensuring(ret => Maximizer.constraintsRef.isEmpty)
 
-  @tailrec protected[simplex] final
-  def simplexMethod(tableau: Tableau) {
-    tableau.print()
-    println()
-    val col = tableau.selectCol
-    if (!tableau.isSolved(col)) {
-      val row = tableau.selectRow(col)
-      tableau.sweep(row, col)
-      simplexMethod(tableau)
-    }
-  }
-
   protected def printSolution(tableau: Tableau) {
     printObjectiveValue(tableau.objectiveValue)
     println("value of variables:")
@@ -238,6 +209,19 @@ abstract class Optimizer {
   }
 
   protected def printObjectiveValue(v: Double)
+}
+
+class Maximizer(override val expr: LinearExpr) extends Solver {
+  override protected def printObjectiveValue(v: Double) {
+    println("maximum value of objective function: " + v)
+  }
+}
+
+class Minimizer(e: LinearExpr) extends Solver {
+  override val expr = -e
+  override protected def printObjectiveValue(v: Double) {
+    println("minimum value of objective function: " + (-v))
+  }
 }
 
 object Maximizer {

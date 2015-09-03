@@ -74,10 +74,9 @@ class TestSimplex extends FunSuite with Matchers {
   }
 
   test("solve") {
-    val m = maximize(expr)
     val tableau = makeTableau
     val map = Map(1 -> 6.0, 0 -> 2.0, 4 -> 6.0)
-    m.simplexMethod(tableau)
+    tableau.simplex()
     assertResult(map){ tableau.result }
 
     val t = Array(
