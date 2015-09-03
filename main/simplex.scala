@@ -32,16 +32,6 @@ sealed trait LinearExpr {
     require(Maximizer.constraintsRef.nonEmpty)
     Maximizer.constraintsRef.head += makeConstraint(const, Eq)
   }
-
-  /** For precodition checking of objective function. Returns all leaps of
-    * variable numbers.
-    * For example, expr "3*x(2) + x(5)" has 4 leaps: 0, 1, 3 and 4.
-    */
-  private[simplex] def leaps: Set[Int] = {
-    val numberSet = makeCoeffs.keySet
-    val range = (0 to numberSet.max).toSet
-    range diff numberSet
-  }
 }
 
 case class Term(coeff: Double, variable: Var) extends LinearExpr {
@@ -64,10 +54,9 @@ case class Constraint(
 // http://zeus.mech.kyushu-u.ac.jp/~tsuji/java_edu/Simplex_st.html
 class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   val Epsilon = 1.0e-8
-  val Fine = 1.0e6
+  val Fine = 1.0e-6
 
-  // require(expr.leaps.isEmpty)
-  val nObjectiveVars = expr.makeCoeffs.keySet.size
+  val nObjectiveVars = constraints.flatMap(_.coeffs.keySet).max + 1
   val nSlackVars = constraints.length
   val nArtificialVars = constraints.filter(_.equality != Le).length
   val nAllVars = nObjectiveVars + nSlackVars + nArtificialVars
@@ -133,6 +122,17 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
     }
   }
 
+  @tailrec final def simplex() {
+    print()
+    println()
+    val col = selectCol
+    if (!isSolved(col)) {
+      val row = selectRow(col)
+      sweep(row, col)
+      simplex()
+    }
+  }
+
   /** For debug. */
   def print() {
     val stringTable = contents.map { row =>
@@ -175,13 +175,11 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
 }
 
 class Maximizer(expr: LinearExpr) {
-  // require(expr.leaps.isEmpty)
-
   /** Solves the problem and prints the solution. */
   def subjectTo(constraintsRegisterer: => Unit) {
     val constraints = registerConstraints(constraintsRegisterer)
     val tableau = new Tableau(expr, constraints)
-    simplexMethod(tableau)
+    tableau.simplex()
     printSolution(tableau)
   }
 
