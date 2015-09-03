@@ -8,15 +8,29 @@ case class Var(n: Int) {
   require(n >= 0)
 }
 
+sealed trait Equality
+case object Le extends Equality
+case object Ge extends Equality
+case object Eq extends Equality
+
 sealed trait LinearExpr {
   def +(other: LinearExpr): LinearExpr = new +(this, other)
   def *(other: Double): LinearExpr
   def unary_- : LinearExpr
-  def makeCoeffs: Map[Int,Double]
-  def makeConstraint(const: Double): Constraint = Constraint(makeCoeffs, const)
+  private[simplex] def makeCoeffs: Map[Int,Double]
+  private[simplex] def makeConstraint(const: Double, e: Equality): Constraint =
+    Constraint(makeCoeffs, const, e)
   def <=(const: Double) {
     require(Maximizer.constraintsRef.nonEmpty)
-    Maximizer.constraintsRef.head += makeConstraint(const)
+    Maximizer.constraintsRef.head += makeConstraint(const, Le)
+  }
+  def >=(const: Double) {
+    require(Maximizer.constraintsRef.nonEmpty)
+    Maximizer.constraintsRef.head += makeConstraint(const, Ge)
+  }
+  def ==(const: Double) {
+    require(Maximizer.constraintsRef.nonEmpty)
+    Maximizer.constraintsRef.head += makeConstraint(const, Eq)
   }
 
   /** For precodition checking of objective function. Returns all leaps of
@@ -42,17 +56,21 @@ case class +(lhs: LinearExpr, rhs: LinearExpr) extends LinearExpr {
   def makeCoeffs: Map[Int,Double] = (lhs.makeCoeffs mix rhs.makeCoeffs)(_ + _)
 }
 
-/** Constraint `expr <= const` */
-case class Constraint(coeffs: Map[Int,Double], const: Double)
+/** Constraint `expr (<= or >= or ==) const` */
+case class Constraint(
+  coeffs: Map[Int,Double], const: Double, equality: Equality
+)
 
 // http://zeus.mech.kyushu-u.ac.jp/~tsuji/java_edu/Simplex_st.html
-class Tabulaue(expr: LinearExpr, constraints: Seq[Constraint]) {
+class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   val Epsilon = 1.0e-8
+  val Fine = 1.0e6
 
-  require(expr.leaps.isEmpty)
+  // require(expr.leaps.isEmpty)
   val nObjectiveVars = expr.makeCoeffs.keySet.size
   val nSlackVars = constraints.length
-  val nAllVars = nObjectiveVars + nSlackVars
+  val nArtificialVars = constraints.filter(_.equality != Le).length
+  val nAllVars = nObjectiveVars + nSlackVars + nArtificialVars
   val contents =
     Array.fill(constraints.length + 1)(
       Array.fill(nAllVars + 1)(0.0)
@@ -64,12 +82,27 @@ class Tabulaue(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 
   // set rows since the second one
+  private[this] val s0 = nObjectiveVars
+  private[this] val a0 = nObjectiveVars + nSlackVars
+  private[this] var iArtificial = 0
   constraints.zipWithIndex.foreach{ case (constraint, i) =>
     val row = i + 1
     constraint.coeffs.foreach{ case (n, coeff) =>
       contents(row)(n) = coeff
     }
-    contents(row)(nObjectiveVars + i) = 1.0
+    constraint.equality match {
+      case Le =>
+        contents(row)(s0 + i) = 1.0
+      case Ge =>
+        contents(row)(s0 + i) = -1.0
+        contents(row)(a0 + iArtificial) = 1.0
+        contents(0)(a0 + iArtificial) = Fine
+        iArtificial += 1
+      case Eq =>
+        contents(row)(a0 + iArtificial) = 1.0
+        contents(0)(a0 + iArtificial) = Fine
+        iArtificial += 1
+    }
     contents(row)(nAllVars) = constraint.const
   }
 
@@ -104,7 +137,7 @@ class Tabulaue(expr: LinearExpr, constraints: Seq[Constraint]) {
   def print() {
     val stringTable = contents.map { row =>
       row.map { value =>
-        f"$value%1.3f"
+        f"$value%1.2f"
       }
     }
     val maxLengths = (0 to nAllVars).map { iCol =>
@@ -142,16 +175,14 @@ class Tabulaue(expr: LinearExpr, constraints: Seq[Constraint]) {
 }
 
 class Maximizer(expr: LinearExpr) {
-  require(expr.leaps.isEmpty)
+  // require(expr.leaps.isEmpty)
 
   /** Solves the problem and prints the solution. */
   def subjectTo(constraintsRegisterer: => Unit) {
     val constraints = registerConstraints(constraintsRegisterer)
-    val tabulaue = new Tabulaue(expr, constraints)
-    println("initial tabulaue:")
-    tabulaue.print()
-    simplexMethod(tabulaue)
-    printSolution(tabulaue)
+    val tableau = new Tableau(expr, constraints)
+    simplexMethod(tableau)
+    printSolution(tableau)
   }
 
   private[simplex]
@@ -165,27 +196,26 @@ class Maximizer(expr: LinearExpr) {
   } ensuring(ret => Maximizer.constraintsRef.isEmpty)
 
   @tailrec private[simplex] final
-  def simplexMethod(tabulaue: Tabulaue) {
-    val col = tabulaue.selectCol
-    if (!tabulaue.isSolved(col)) {
-      val row = tabulaue.selectRow(col)
-      tabulaue.sweep(row, col)
-      simplexMethod(tabulaue)
+  def simplexMethod(tableau: Tableau) {
+    tableau.print()
+    println()
+    val col = tableau.selectCol
+    if (!tableau.isSolved(col)) {
+      val row = tableau.selectRow(col)
+      tableau.sweep(row, col)
+      simplexMethod(tableau)
     }
   }
 
-  private def printSolution(tabulaue: Tabulaue) {
-    println("optimized value of objective function: " + tabulaue.objectiveValue)
+  private def printSolution(tableau: Tableau) {
+    println("optimized value of objective function: " + tableau.objectiveValue)
     println("value of variables:")
-    val result = tabulaue.result
+    val result = tableau.result
 
-    def slack(n: Int) = if (n < tabulaue.nObjectiveVars) "" else "(slack)"
+    def slack(n: Int) = if (n < tableau.nObjectiveVars) "" else "(slack)"
     result.toSeq.sortBy(_._1).foreach { case (n, value) =>
       println("x" + n + slack(n) + " = " + value)
     }
-
-    println("final tabulaue:")
-    tabulaue.print()
   }
 }
 
