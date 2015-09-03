@@ -123,8 +123,6 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 
   @tailrec final def simplex() {
-    print()
-    println()
     val col = selectCol
     if (!isSolved(col)) {
       val row = selectRow(col)
@@ -174,7 +172,22 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   }
 }
 
-class Maximizer(expr: LinearExpr) {
+class Maximizer(override val expr: LinearExpr) extends Optimizer {
+  override protected def printObjectiveValue(v: Double) {
+    println("maximum value of objective function: " + v)
+  }
+}
+
+class Minimizer(e: LinearExpr) extends Optimizer {
+  override val expr = -e
+  override protected def printObjectiveValue(v: Double) {
+    println("minimum value of objective function: " + (-v))
+  }
+}
+
+abstract class Optimizer {
+  val expr: LinearExpr
+
   /** Solves the problem and prints the solution. */
   def subjectTo(constraintsRegisterer: => Unit) {
     val constraints = registerConstraints(constraintsRegisterer)
@@ -183,7 +196,7 @@ class Maximizer(expr: LinearExpr) {
     printSolution(tableau)
   }
 
-  private[simplex]
+  protected[simplex]
   def registerConstraints(registerer: => Unit): Seq[Constraint] = {
     require(Maximizer.constraintsRef.isEmpty)
     Maximizer.constraintsRef = Some(mutable.Buffer.empty[Constraint])
@@ -193,7 +206,7 @@ class Maximizer(expr: LinearExpr) {
     constraints
   } ensuring(ret => Maximizer.constraintsRef.isEmpty)
 
-  @tailrec private[simplex] final
+  @tailrec protected[simplex] final
   def simplexMethod(tableau: Tableau) {
     tableau.print()
     println()
@@ -205,16 +218,18 @@ class Maximizer(expr: LinearExpr) {
     }
   }
 
-  private def printSolution(tableau: Tableau) {
-    println("optimized value of objective function: " + tableau.objectiveValue)
+  protected def printSolution(tableau: Tableau) {
+    printObjectiveValue(tableau.objectiveValue)
     println("value of variables:")
     val result = tableau.result
-
-    def slack(n: Int) = if (n < tableau.nObjectiveVars) "" else "(slack)"
+    val objectiveVars = expr.makeCoeffs.keySet
+    def s(n: Int) = if (objectiveVars(n)) "" else "(slack/artificial)"
     result.toSeq.sortBy(_._1).foreach { case (n, value) =>
-      println("x" + n + slack(n) + " = " + value)
+      println("x" + n + s(n) + " = " + value)
     }
   }
+
+  protected def printObjectiveValue(v: Double)
 }
 
 object Maximizer {
