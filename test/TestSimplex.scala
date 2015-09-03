@@ -6,7 +6,7 @@ import org.scalatest.Matchers._
 class TestSimplex extends FunSuite with Matchers {
   test("expr creation") {
     val e = -(x(0) + 3*x(1)) * 2
-    assert(e == new +(Term(-2.0, Var(0)), Term(-6.0, Var(1))))
+    assert(e == new Plus(Term(-2.0, Var(0)), Term(-6.0, Var(1))))
   }
 
   test("make constraint from expr") {
