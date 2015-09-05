@@ -18,4 +18,11 @@ package object implicits {
     def zipWithIndexFrom(start: Int): Seq[(A,Int)] =
       self.zipWithIndex.map{ case (a, i) => (a, start + i) }
   }
+
+  def optIf[A](cond: Boolean)(body: => Option[A]): Option[A] =
+    if (cond) body else None
+
+  implicit class MyRichBoolean(val self: Boolean) extends AnyVal {
+    def thenSome[A](a: => A) = if (self) Some(a) else None
+  }
 }

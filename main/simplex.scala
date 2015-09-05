@@ -3,6 +3,8 @@ package simplex
 import scala.annotation._
 import scala.collection.mutable
 import implicits._
+import simplex.doubleerror._
+import Epsilon.defaultEpsilon
 
 case class Var(n: Int) {
   require(n >= 0)
@@ -55,8 +57,7 @@ case class Constraint(
 
 // http://zeus.mech.kyushu-u.ac.jp/~tsuji/java_edu/Simplex_st.html
 class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
-  val Epsilon = 1.0e-8
-  val Fine = 1.0e-6
+  val Fine = Double.PositiveInfinity
 
   val nExplicitVars = constraints.flatMap(_.coeffs.keySet).max + 1
   val nSlackVars = constraints.filter(_.equality != Eq).length
@@ -104,11 +105,11 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   def objectiveValue: Double = objectiveRow(nAllVars)
 
   def selectCol: Int = objectiveRow.zipWithIndex.minBy(_._1)._2
-  def isSolved(col: Int): Boolean = objectiveRow(col) >= -Epsilon
+  def isSolved(col: Int): Boolean = objectiveRow(col) >~ 0.0
   def selectRow(col: Int): Int =
     contents.zipWithIndex
       .drop(1)
-      .filter{ case (row, _) => row(col) > Epsilon }
+      .filter{ case (row, _) => row(col) |>| 0.0 }
       .minBy { case (row, _) => row(nAllVars) / row(col) }
       ._2
 
@@ -166,15 +167,11 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
   def solutionOf(n: Int): Option[Double] = {
     require(0 <= n && n < nAllVars)
     val col = contents.map(row => row(n))
-    val nonZeros = col.zipWithIndex.filter{ case (x,i) =>
-      x < -Epsilon || Epsilon < x
-    }
-    if (nonZeros.length == 1) {
+    val nonZeros = col.zipWithIndex.filter{ case (x,i) => x |!=| 0.0 }
+    optIf (nonZeros.length == 1) {
       val (value, index) = nonZeros.head
-      if (-Epsilon < value-1.0 && value-1.0 < Epsilon && index != 0)
-        Some(contents(index)(nAllVars))
-      else None
-    } else None
+      (value =~ 1.0 && index != 0) thenSome contents(index)(nAllVars)
+    }
   }
 }
 

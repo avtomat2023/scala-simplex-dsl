@@ -1,9 +1,8 @@
 package simplex
 
-import org.scalatest._
-import org.scalatest.Matchers._
+import org.scalatest.FunSuite
 
-class TestSimplex extends FunSuite with Matchers {
+class TestSimplex extends FunSuite {
   test("expr creation") {
     val e = -(x(0) + 3*x(1)) * 2
     assert(e == new Plus(Term(-2.0, Var(0)), Term(-6.0, Var(1))))
