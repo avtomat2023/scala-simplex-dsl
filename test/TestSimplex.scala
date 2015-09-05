@@ -30,13 +30,22 @@ class TestSimplex extends FunSuite with Matchers {
   }
 
   // http://zeus.mech.kyushu-u.ac.jp/~tsuji/java_edu/Simplex_st.html
-  val expr = 2*x(0) + 3*x(1)
-  val constraints = Seq(
+  val expr1 = 2*x(0) + 3*x(1)
+  val constraints1 = Seq(
     Constraint(Map(0 -> 1.0, 1 -> 2.0), 14.0, Le),
     Constraint(Map(0 -> 1.0, 1 -> 1.0), 8.0, Le),
     Constraint(Map(0 -> 3.0, 1 -> 1.0), 18.0, Le)
   )
-  def makeTableau = new Tableau(expr, constraints)
+  def makeTableau1 = new Tableau(expr1, constraints1)
+
+  // http://www.bunkyo.ac.jp/~nemoto/lecture/or/99/simplex2.pdf
+  val expr2 = -6*x(0) + 6*x(1)
+  val constraints2 = Seq(
+    Constraint(Map(0 ->  2.0, 1 -> 3.0), 6.0,  Le),
+    Constraint(Map(0 -> -5.0, 1 -> 9.0), 15.0, Eq),
+    Constraint(Map(0 -> -6.0, 1 -> 3.0), 3.0,  Ge)
+  )
+  def makeTableau2 = new Tableau(expr2, constraints2)
 
   test("tableau initialization") {
     val t = Array(
@@ -45,24 +54,24 @@ class TestSimplex extends FunSuite with Matchers {
       Array( 1.0,  1.0, 0.0, 1.0, 0.0, 8.0),
       Array( 3.0,  1.0, 0.0, 0.0, 1.0, 18.0)
     )
-    assertResult(t){ makeTableau.contents }
+    assertResult(t){ makeTableau1.contents }
   }
 
   test("Tableau#objectiveRow") {
     val row = Array(-2.0, -3.0, 0.0, 0.0, 0.0, 0.0)
-    assertResult(row){ makeTableau.objectiveRow }
+    assertResult(row){ makeTableau1.objectiveRow }
   }
 
   test("Tableau#selectCol") {
-    assertResult(1){ makeTableau.selectCol }
+    assertResult(1){ makeTableau1.selectCol }
   }
 
   test("Tableau#selectRow") {
-    assertResult(1){ makeTableau.selectRow(1) }
+    assertResult(1){ makeTableau1.selectRow(1) }
   }
 
   test("Tableau#sweep") {
-    val tableau = makeTableau
+    val tableau = makeTableau1
     tableau.sweep(1,1)
     val t = Array(
       Array(-0.5, 0.0,  1.5, 0.0, 0.0, 21.0),
@@ -73,8 +82,8 @@ class TestSimplex extends FunSuite with Matchers {
     assertResult(t){ tableau.contents }
   }
 
-  test("solve") {
-    val tableau = makeTableau
+  test("solve (only less-than-equal constraints)") {
+    val tableau = makeTableau1
     val map = Map(1 -> 6.0, 0 -> 2.0, 4 -> 6.0)
     tableau.simplex()
     assertResult(map){ tableau.result }
@@ -86,5 +95,11 @@ class TestSimplex extends FunSuite with Matchers {
       Array(0.0, 0.0,  2.0, -5.0, 1.0, 6.0)
     )
     assertResult(t){ tableau.contents }
+  }
+
+  test("solve (all kinds of constraints)") {
+    val tableau = makeTableau2
+    tableau.simplex()
+    assertResult(10.0){ tableau.objectiveValue }
   }
 }

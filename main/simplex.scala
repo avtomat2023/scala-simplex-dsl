@@ -80,14 +80,21 @@ class Tableau(expr: LinearExpr, constraints: Seq[Constraint]) {
       contents(row)(n) = coeff
     }
 
-    if (constraint.equality != Eq) {
-      contents(row)(slackCol) = 1.0
-      slackCol += 1
-    }
-    if (constraint.equality != Le) {
-      contents(row)(artificialCol) = 1.0
-      contents(0)(artificialCol) = Fine
-      artificialCol += 1
+    // set coefficients of slack and artificial variables
+    constraint.equality match {
+      case Le =>
+        contents(row)(slackCol) = 1.0
+        slackCol += 1
+      case Eq =>
+        contents(row)(artificialCol) = 1.0
+        contents(0)(artificialCol) = Fine
+        artificialCol += 1
+      case Ge =>
+        contents(row)(slackCol) = -1.0
+        slackCol += 1
+        contents(row)(artificialCol) = 1.0
+        contents(0)(artificialCol) = Fine
+        artificialCol += 1
     }
 
     contents(row)(nAllVars) = constraint.const
